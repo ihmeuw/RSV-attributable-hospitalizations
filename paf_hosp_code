@@ -1,0 +1,563 @@
+rm(list = ls())
+
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+country <- "COUNTRY"
+exposure_path <- "FILEPATH"
+
+if ("Chile" %in% country | "Japan" %in% country | "Brazil" %in% country | "Mexico" %in% country | "Ireland" %in% country) {
+  exposure_path1 <- fread(paste0(exposure_path, country, "_data1.csv"))
+  exposure_path1$age <- 1
+  exposure_path2 <- fread(paste0(exposure_path, country, "_data2.csv"))
+  exposure_path2$age <- 2
+  exposure_path3 <- fread(paste0(exposure_path, country, "_data3.csv"))
+  exposure_path3$age <- 3
+  exposure_path6 <- fread(paste0(exposure_path, country, "_data6.csv"))
+  exposure_path6$age <- 6
+  exposure_data <- rbind(exposure_path1, exposure_path2, exposure_path3, exposure_path6)
+} else if (country == "Argentina") {
+  exposure_data <- fread("FILEPATH")
+} else {
+  data_file <- paste0(exposure_path, country, "_data.csv")
+  exposure_data <- fread(data_file)
+}
+
+output_path <- paste0("FILEPATH"))
+dir.create(output_path, recursive = TRUE)
+
+if (country == "Argentina") {
+  age_values <- c(1, 2, 3, 6)
+  dfs <- list()
+  for (age in age_values) {
+    df_copy <- exposure_data %>% 
+      mutate(Age = age) 
+    dfs[[length(dfs) + 1]] <- df_copy
+  }
+
+  exposure_data <- bind_rows(dfs)
+}
+
+colnames(exposure_data)[colnames(exposure_data) == "Year"] <- "year"
+colnames(exposure_data)[colnames(exposure_data) == "year.x"] <- "year"
+colnames(exposure_data)[colnames(exposure_data) == "year_id"] <- "year"
+colnames(exposure_data)[colnames(exposure_data) == "week"] <- "Week"
+colnames(exposure_data)[colnames(exposure_data) == "week.x"] <- "Week"
+colnames(exposure_data)[colnames(exposure_data) == "Country.x"] <- "Country"
+colnames(exposure_data)[colnames(exposure_data) == "age"] <- "Age"
+
+exposure_data$Country <- country
+
+if ("age_group" %in% colnames(exposure_data) & country != "Ireland") {
+  exposure_data$Age <- ifelse(exposure_data$age_group == "18-59", 1,
+    ifelse(exposure_data$age_group == "60-74", 2,
+      ifelse(exposure_data$age_group == "75+", 3,
+        ifelse(exposure_data$age_group == "60+", 6, NA)
+      )
+    )
+  )
+}
+
+if ("bronchio" %in% names(exposure_data) & "pRSV_int" %in% names(exposure_data) & "predicted_rsv_activity" %in% names(exposure_data)) {
+  if (country != "Ireland") {
+    exposure_data <- exposure_data[, c("year", "Week", "Age", "Country", "pRSV_int", "predicted_rsv_activity", "bronchio")]
+    exposure_data[, hRSV := ((bronchio / sum(bronchio, na.rm = TRUE)) * 100), by = .(year, Age)]
+    exposure_data <- exposure_data %>%
+      dplyr::rename(
+        "age" = "Age",
+        "sRSV" = "pRSV_int",
+        "mRSV" = "predicted_rsv_activity"
+      )
+    exposure_data <- exposure_data %>%
+      dplyr::mutate(
+        sRSV = round(sRSV, digits = 1),
+        mRSV = round(mRSV, digits = 1),
+        hRSV = round(hRSV, digits = 1)
+      )
+  } else {
+    exposure_data <- exposure_data[, c("year", "month", "Age", "Country", "pRSV_int", "predicted_rsv_activity", "bronchio")]
+    exposure_data[, hRSV := ((bronchio / sum(bronchio, na.rm = TRUE)) * 100), by = .(year, Age)]
+    exposure_data <- exposure_data %>%
+      dplyr::rename(
+        "age" = "Age",
+        "sRSV" = "pRSV_int",
+        "mRSV" = "predicted_rsv_activity"
+      )
+    exposure_data <- exposure_data %>%
+      dplyr::mutate(
+        sRSV = round(sRSV, digits = 1),
+        mRSV = round(mRSV, digits = 1),
+        hRSV = round(hRSV, digits = 1)
+      )
+  }
+} else if ("bronchio" %in% names(exposure_data) & !("pRSV_int" %in% names(exposure_data)) & ("predicted_rsv_activity" %in% names(exposure_data))) {
+  exposure_data <- exposure_data[, c("year", "Week", "Age", "Country", "predicted_rsv_activity", "bronchio")]
+  exposure_data[, hRSV := ((bronchio / sum(bronchio, na.rm = TRUE)) * 100), by = .(year, Age)]
+  exposure_data <- exposure_data %>%
+    dplyr::rename(
+      "age" = "Age",
+      "mRSV" = "predicted_rsv_activity"
+    )
+  exposure_data <- exposure_data %>%
+    dplyr::mutate(
+      mRSV = round(mRSV, digits = 1),
+      hRSV = round(hRSV, digits = 1)
+    )
+} else if ("bronchio" %in% names(exposure_data) & !("pRSV_int" %in% names(exposure_data)) & !("predicted_rsv_activity" %in% names(exposure_data))) {
+  exposure_data <- exposure_data[, c("year", "Week", "Country", "Age", "BRONCHIO")]
+  exposure_data[, hRSV := ((BRONCHIO / sum(BRONCHIO, na.rm = TRUE)) * 100), by = .(year)]
+  exposure_data$BRONCHIO <- NULL
+  exposure_data <- exposure_data %>%
+    dplyr::rename(
+      "age" = "Age"
+    )
+  exposure_data <- exposure_data %>%
+    dplyr::mutate(
+      hRSV = round(hRSV, digits = 1)
+    )
+} else if (!("bronchio" %in% names(exposure_data)) & "pRSV_int" %in% names(exposure_data) & "predicted_rsv_activity" %in% names(exposure_data) & !("RSV_proxy" %in% names(exposure_data))) {
+  exposure_data <- exposure_data[, c("year", "Week", "Age", "Country", "predicted_rsv_activity", "pRSV_int")]
+  exposure_data <- exposure_data %>%
+    dplyr::rename(
+      "age" = "Age",
+      "mRSV" = "predicted_rsv_activity",
+      "sRSV" = "pRSV_int"
+    )
+  exposure_data <- exposure_data %>%
+    dplyr::mutate(
+      mRSV = round(mRSV, digits = 1),
+      sRSV = round(sRSV, digits = 1)
+    )
+} else if (!("bronchio" %in% names(exposure_data)) & "pRSV_int" %in% names(exposure_data) & "predicted_rsv_activity" %in% names(exposure_data) & ("RSV_proxy" %in% names(exposure_data))) {
+  exposure_data <- exposure_data[, c("year", "Week", "Age", "Country", "predicted_rsv_activity", "pRSV_int", "RSV_proxy")]
+  exposure_data[, hRSV := ((RSV_proxy / sum(RSV_proxy, na.rm = TRUE)) * 100), by = .(year, Age)]
+  exposure_data <- exposure_data %>%
+    dplyr::rename(
+      "age" = "Age",
+      "mRSV" = "predicted_rsv_activity",
+      "sRSV" = "pRSV_int"
+    )
+  exposure_data$RSV_proxy <- NULL
+  exposure_data <- exposure_data %>%
+    dplyr::mutate(
+      mRSV = round(mRSV, digits = 1),
+      sRSV = round(sRSV, digits = 1),
+      hRSV = round(hRSV, digits = 1)
+    )
+} else {
+  exposure_data <- exposure_data[, c("year", "Week", "Age", "Country", "pRSV_int", "predicted_rsv_activity")]
+  exposure_data <- exposure_data %>%
+    dplyr::rename(
+      "age" = "Age",
+      "sRSV" = "pRSV_int",
+      "mRSV" = "predicted_rsv_activity"
+    )
+  exposure_data <- exposure_data %>%
+    dplyr::mutate(
+      sRSV = round(sRSV, digits = 1),
+      mRSV = round(mRSV, digits = 1)
+    )
+
+  message("No bronchio")
+}
+
+exposure_data <- exposure_data %>%
+  pivot_longer(
+    cols = starts_with(c("sRSV", "mRSV", "hRSV")),
+    names_to = "predictor",
+    values_to = "exp"
+  )
+
+exposure_data <- exposure_data %>%
+  filter(!(year == 2015 & predictor == "sRSV"))
+
+exposure_data <- exposure_data %>%
+  filter(!is.nan(exp)) %>%
+  filter(!is.na(exp))
+
+diagnosis <- c("ALL", "CR", "R")
+predictor <- c("hRSV", "mRSV", "sRSV")
+age_group <- c(1, 2, 3, 6)
+
+data_list <- list()
+
+if ("Argentina" %in% country | "Chile" %in% country) {
+  base_directory <- file.path("FILEPATH")
+} else {
+  base_directory <- file.path("FILEPATH", country)
+}
+
+dirs <- fs::dir_ls(base_directory, recurse = FALSE)
+dates <- sapply(dirs, function(dir) file.info(dir)$mtime)
+
+most_recent_dir <- dirs[which.max(dates)]
+
+file_path <- file.path(most_recent_dir, "erf_%s.%s.%d.csv")
+
+if (country != "Botswana") {
+  for (d in diagnosis) {
+    for (p in predictor) {
+      for (age in age_group) {
+        file_name <- sprintf(file_path, d, p, age)
+
+        if (file.exists(file_name)) {
+          erf_data <- fread(file_name)
+
+          erf_data$V1 <- NULL
+
+          erf_data$cause <- ifelse(grepl("CR", d), "cardiorespiratory",
+            ifelse(grepl("ALL", d), "all", "respiratory")
+          )
+
+          erf_data$age <- age
+
+          erf_data$predictor <- p
+
+          col_to_rename <- p 
+          setnames(erf_data, col_to_rename, "exp")
+
+          data_list[[paste(d, p, age, sep = "_")]] <- erf_data
+        } else {
+          cat("File not found:", file_name, "\n")
+        }
+      }
+    }
+  }
+} else {
+  for (d in diagnosis) {
+    for (age in age_group) {
+      p <- "BR"
+      file_name <- sprintf(file_path, d, p, age)
+
+      if (file.exists(file_name)) {
+        erf_data <- fread(file_name)
+
+        erf_data$V1 <- NULL
+
+        erf_data$cause <- ifelse(grepl("CR", d), "cardiorespiratory",
+          ifelse(grepl("ALL", d), "all", "respiratory")
+        )
+
+        erf_data$age <- age
+
+        erf_data$predictor <- p
+
+        col_to_rename <- p 
+        setnames(erf_data, col_to_rename, "exp", skip_absent = TRUE)
+
+        data_list[[paste(d, p, age, sep = "_")]] <- erf_data
+      } else {
+        cat("File not found:", file_name, "\n")
+      }
+    }
+  }
+}
+
+erf_df <- rbindlist(data_list)
+
+if (country == "Botswana") {
+  erf_df$predictor <- "hRSV"
+  erf_df$exp <- erf_df$hRSV
+  erf_df$hRSV <- NULL
+  exposure_data <- exposure_data %>% distinct()
+}
+
+erf_df <- erf_df %>%
+  dplyr::mutate(
+    exp = round(exp, digits = 1)
+  )
+
+if (country == "Japan") {
+  exposure_data <- exposure_data %>% filter(year != 2019)
+}
+
+if (country == "Botswana") {
+  erf_exp <- merge(erf_df, exposure_data, by = c("age", "predictor", "exp"), allow.cartesian = TRUE)
+} else {
+  erf_exp <- merge(erf_df, exposure_data)
+}
+
+erf_exp[, paf := ((RR - 1) / RR)]
+erf_exp[, paf_low := ((RR_low - 1) / RR)]
+erf_exp[, paf_high := ((RR_high - 1) / RR)]
+
+paf_aggregated <- aggregate(erf_exp[, c("paf", "paf_low", "paf_high")], by = list(
+  erf_exp$year,
+  erf_exp$age,
+  erf_exp$predictor,
+  erf_exp$cause
+), mean, na.rm = TRUE)
+
+paf_aggregated <- paf_aggregated %>%
+  dplyr::rename(
+    "year" = "Group.1",
+    "age" = "Group.2",
+    "predictor" = "Group.3",
+    "cause" = "Group.4"
+  )
+
+write.csv(paf_aggregated, paste0(output_path, format(Sys.time(), "%m_%d_%y"), "_PAFs_", country, ".csv"), row.names = FALSE)
+
+PAF <- fread(paste0(output_path, format(Sys.time(), "%m_%d_%y"), "_PAFs_", country, ".csv"))
+PAF$cause <- ifelse(PAF$cause == "cardiorespiratory", "cardioresp",
+  ifelse(PAF$cause == "respiratory", "resp", PAF$cause)
+)
+
+if (country == "USA") {
+  country <- "United States"
+} else {
+  country <- country
+}
+
+raw_hosp <- fread(paste0("FILEPATH", country, ".csv"))
+
+if (country == "Canada") {
+  raw_hosp$POP_Ontario <- NULL
+  colnames(raw_hosp) <- ifelse(grepl("pop|POP", colnames(raw_hosp), ignore.case = TRUE), "pop", colnames(raw_hosp))
+} else {
+  colnames(raw_hosp) <- ifelse(grepl("pop|POP", colnames(raw_hosp), ignore.case = TRUE), "pop", colnames(raw_hosp))
+}
+
+colnames(raw_hosp) <- ifelse(grepl("Year", colnames(raw_hosp), ignore.case = TRUE), "year", colnames(raw_hosp))
+colnames(raw_hosp) <- ifelse(grepl("Age", colnames(raw_hosp), ignore.case = TRUE), "age", colnames(raw_hosp))
+
+if ("RAll" %in% colnames(raw_hosp)) {
+  raw_hosp$NResp <- NULL
+  raw_hosp$NCardresp <- NULL
+  raw_hosp$NAll <- NULL
+  raw_hosp <- raw_hosp %>%
+    pivot_longer(
+      cols = c(RResp, RCardresp, RAll),
+      names_to = "cause",
+      values_to = "rhosp"
+    ) %>%
+    mutate(cause = if_else(cause == "RResp", "resp",
+      ifelse(cause == "RCardresp", "cardioresp", "all")
+    ))
+} else if ("RResp" %in% colnames(raw_hosp)) {
+  raw_hosp$NResp <- NULL
+  raw_hosp$NCardresp <- NULL
+  raw_hosp <- raw_hosp %>%
+    pivot_longer(
+      cols = c(RResp, RCardresp),
+      names_to = "cause",
+      values_to = "rhosp"
+    ) %>%
+    mutate(cause = if_else(cause == "RResp", "resp", "cardioresp"))
+}
+
+if ("CARDRESP" %in% colnames(raw_hosp) && "RESP" %in% colnames(raw_hosp) && "ALL" %in% colnames(raw_hosp)) {
+  clean_hosp <- raw_hosp[, c("year", "age", "CARDRESP", "RESP", "ALL")]
+  raw_hosp$check <- raw_hosp$RResp > raw_hosp$RCardresp
+  colnames(clean_hosp) <- c("year", "age", "cardioresp", "resp", "all")
+  clean_hosp <- melt(clean_hosp, id.vars = c("year", "age"))
+  colnames(clean_hosp) <- c("year", "age", "cause", "rhosp")
+} else if ("CARDRESP" %in% colnames(raw_hosp) && "RESP" %in% colnames(raw_hosp)) {
+  clean_hosp <- raw_hosp[, c("year", "age", "CARDRESP", "RESP")]
+  colnames(clean_hosp) <- c("year", "age", "cardioresp", "resp")
+  clean_hosp <- melt(clean_hosp, id.vars = c("year", "age"))
+  colnames(clean_hosp) <- c("year", "age", "cause", "rhosp")
+} else if ("rhosp" %in% colnames(raw_hosp)) {
+  clean_hosp <- raw_hosp[, c("year", "age", "cause", "rhosp")]
+}
+
+population <- melt(raw_hosp[, c("year", "age", "pop")], id.vars = c("year", "age"))[, c(1, 2, 4)]
+colnames(population) <- c("year", "age", "pop")
+population <- population %>% distinct()
+
+clean_hosp2 <- merge(clean_hosp, population, by = c("year", "age"))
+
+merged_data <- merge(clean_hosp2, PAF, by = c("year", "age", "cause"))
+
+if (country == "Argentina") {
+  ratio <- fread("FILEPATH")
+
+  ratio$age[ratio$Age == "18-59 yrs."] <- 1
+  ratio$age[ratio$Age == "60-74 yrs."] <- 2
+  ratio$age[ratio$Age == "75+ yrs."] <- 3
+  ratio$age[ratio$Age == "60+ yrs."] <- 6
+
+  ratio$cause[ratio$Diagnosis == "All causes"] <- "all"
+  ratio$cause[ratio$Diagnosis == "Cardiorespiratory disease"] <- "cardioresp"
+  ratio$cause[ratio$Diagnosis == "Respiratory disease"] <- "resp"
+
+  hrsv <- merged_data %>%
+    filter(predictor == "sRSV")
+
+  hrsv$predictor <- "hRSV"
+
+  hrsv_ratio <- merge(hrsv, ratio)
+
+  hrsv_ratio$rhosp <- hrsv_ratio$rhosp * hrsv_ratio$ratio
+
+  hrsv_ratio <- hrsv_ratio[, c(1:9)]
+
+  merged_data <- data.table(rbind(merged_data, hrsv_ratio))
+
+  hrsv_paf <- PAF %>%
+    filter(predictor == "sRSV") %>%
+    mutate(predictor = "hRSV")
+
+  PAF <- rbind(PAF, hrsv_paf)
+
+  clean_hosp3 <- merge(clean_hosp2, ratio)
+
+  clean_hosp3$rhosp <- clean_hosp3$ratio * clean_hosp3$rhosp
+
+  clean_hosp3 <- clean_hosp3[, c(1:5)]
+}
+
+merged_data <- data.table(merged_data)
+
+merged_data[, attr_Rhosp := rhosp * paf]
+merged_data[, attr_Rhosp_low := rhosp * paf_low]
+merged_data[, attr_Rhosp_high := rhosp * paf_high]
+
+if ("all" %in% unique(merged_data$cause)) {
+  merged_data <- merged_data %>%
+    dplyr::select(year, age, cause, predictor, attr_Rhosp, attr_Rhosp_low, attr_Rhosp_high) %>%
+    pivot_wider(
+      names_from = cause,
+      values_from = c(attr_Rhosp, attr_Rhosp_low, attr_Rhosp_high)
+    ) %>%
+    mutate(
+      attr_Rhosp_cardioresp_low = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_low_resp, attr_Rhosp_low_cardioresp),
+      attr_Rhosp_cardioresp_high = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_high_resp, attr_Rhosp_high_cardioresp),
+      attr_Rhosp_cardioresp = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_resp, attr_Rhosp_cardioresp),
+      attr_Rhosp_resp = attr_Rhosp_resp,
+      attr_Rhosp_resp_low = attr_Rhosp_low_resp,
+      attr_Rhosp_resp_high = attr_Rhosp_high_resp,
+      attr_Rhosp_all = attr_Rhosp_all,
+      attr_Rhosp_all_low = attr_Rhosp_low_all,
+      attr_Rhosp_all_high = attr_Rhosp_high_all
+    )
+} else if (!("all" %in% unique(merged_data$cause))) {
+  merged_data <- merged_data %>%
+    dplyr::select(c(year, age, cause, predictor, attr_Rhosp, attr_Rhosp_low, attr_Rhosp_high)) %>%
+    pivot_wider(names_from = cause, values_from = c(attr_Rhosp, attr_Rhosp_low, attr_Rhosp_high)) %>%
+    mutate(
+      attr_Rhosp_cardioresp_low = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_low_resp, attr_Rhosp_low_cardioresp),
+      attr_Rhosp_cardioresp_high = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_high_resp, attr_Rhosp_high_cardioresp),
+      attr_Rhosp_cardioresp = ifelse(((attr_Rhosp_resp > attr_Rhosp_cardioresp) & age %in% c(1, 2)), attr_Rhosp_resp, attr_Rhosp_cardioresp),
+      attr_Rhosp_resp = attr_Rhosp_resp,
+      attr_Rhosp_resp_low = attr_Rhosp_low_resp,
+      attr_Rhosp_resp_high = attr_Rhosp_high_resp
+    )
+}
+
+selected_columns <- c(
+  "year", "age", "predictor",
+  "attr_Rhosp_cardioresp", "attr_Rhosp_cardioresp_low", "attr_Rhosp_cardioresp_high",
+  "attr_Rhosp_resp", "attr_Rhosp_resp_low", "attr_Rhosp_resp_high",
+  "attr_Rhosp_all", "attr_Rhosp_all_low", "attr_Rhosp_all_high"
+)
+
+selected_columns <- intersect(selected_columns, names(merged_data))
+
+merged_data <- merged_data %>%
+  dplyr::select(any_of(selected_columns))
+
+merged_data <- merged_data %>%
+  pivot_longer(
+    cols = starts_with("attr_"),
+    names_to = "cause",
+    names_prefix = "attr_Rhosp_",
+    values_to = "attr_hosp"
+  ) %>%
+  separate(cause, into = c("cause", "level"), sep = "_", remove = FALSE) %>%
+  mutate(
+    cause = case_when(
+      cause == "cardioresp" ~ "cardioresp",
+      cause == "resp" ~ "resp",
+      cause == "all" ~ "all"
+    ),
+    level = case_when(
+      is.na(level) ~ "attr_Rhosp",
+      level == "low" ~ "attr_Rhosp_low",
+      level == "high" ~ "attr_Rhosp_high"
+    )
+  ) %>%
+  pivot_wider(names_from = level, values_from = attr_hosp)
+
+merged_data2 <- merge(PAF, merged_data)
+
+if (country == "Argentina") {
+  merged_data_hrsv <- merged_data2 %>% filter(predictor == "hRSV")
+  merged_data_hrsv <- merge(merged_data_hrsv, clean_hosp3, by = c("year", "age", "cause"))
+
+  merged_data_other <- merged_data2 %>% filter(predictor != "hRSV")
+  merged_data_other <- merge(merged_data_other, clean_hosp2, by = c("year", "age", "cause"))
+
+  merged_data3 <- rbind(merged_data_hrsv, merged_data_other)
+
+  merged_data3$test <- round(merged_data3$attr_Rhosp) == round(merged_data3$paf * merged_data3$rhosp)
+
+  merged_data3$rhosp <- ifelse(merged_data3$test == FALSE,
+    merged_data3$attr_Rhosp / merged_data3$paf,
+    merged_data3$rhosp
+  )
+
+  merged_data3$test <- round(merged_data3$attr_Rhosp) == round(merged_data3$paf * merged_data3$rhosp)
+
+  table(merged_data3$test)
+
+  merged_data3$test <- NULL
+
+  merged_data <- copy(merged_data3)
+} else {
+  merged_data <- merge(merged_data2, clean_hosp2, by = c("year", "age", "cause"))
+}
+
+merged_data[, attr_hosp := as.integer(attr_Rhosp * pop / 100000)]
+merged_data[, attr_hosp_low := as.integer(attr_Rhosp_low * pop / 100000)]
+merged_data[, attr_hosp_high := as.integer(attr_Rhosp_high * pop / 100000)]
+
+merged_data$test_before <- merged_data$paf * merged_data$rhosp == merged_data$attr_Rhosp
+
+merged_data[, paf := (paf * 100)]
+merged_data[, paf_low := (paf_low * 100)]
+merged_data[, paf_high := (paf_high * 100)]
+
+merged_data$test_after <- merged_data$paf * merged_data$rhosp == merged_data$attr_Rhosp
+
+merged_data[, nhosp := as.integer(rhosp * pop / 100000)]
+
+merged_data$cause[which(merged_data$cause == "all")] <- "All causes"
+merged_data$cause[which(merged_data$cause == "cardioresp")] <- "Cardiorespiratory disease"
+merged_data$cause[which(merged_data$cause == "resp")] <- "Respiratory disease"
+
+merged_data$predictor[which(merged_data$predictor == "RSV")] <- "sRSV"
+merged_data$predictor[which(merged_data$predictor == "MRSV")] <- "mRSV"
+merged_data$predictor[which(merged_data$predictor == "BR")] <- "hRSV"
+
+if (country %in% c("Japan", "Spain")) {
+  merged_data$age[which(merged_data$age == 1)] <- "18-59 yrs."
+  merged_data$age[which(merged_data$age == 2)] <- "60-79 yrs."
+  merged_data$age[which(merged_data$age == 3)] <- "80+ yrs."
+  merged_data$age[which(merged_data$age == 6)] <- "60+ yrs."
+} else if (country == "Ireland") {
+  merged_data$age[which(merged_data$age == 1)] <- "18-64 yrs."
+  merged_data$age[which(merged_data$age == 2)] <- "65-79 yrs."
+  merged_data$age[which(merged_data$age == 3)] <- "80+ yrs."
+  merged_data$age[which(merged_data$age == 6)] <- "65+ yrs."
+} else {
+  merged_data$age[which(merged_data$age == 1)] <- "18-59 yrs."
+  merged_data$age[which(merged_data$age == 2)] <- "60-74 yrs."
+  merged_data$age[which(merged_data$age == 3)] <- "75+ yrs."
+  merged_data$age[which(merged_data$age == 6)] <- "60+ yrs."
+}
+
+if (country %in% c("Japan")) {
+  merged_data <- merged_data[!(merged_data$age == "80+ yrs."), ]
+}
+
+final_data <- merged_data[, c("cause", "year", "age", "predictor", "paf", "paf_low", "paf_high", "nhosp", "attr_hosp", "attr_hosp_low", "attr_hosp_high", "attr_Rhosp", "attr_Rhosp_low", "attr_Rhosp_high")]
+colnames(final_data) <- c(
+  "Diagnosis", "Year", "Age", "Predictor", "PAF", "low PAF (lower 5th percentile)", "high PAF (upper 95th percentile)", "Total number of hospitalizations", "Hospitalizations attributable to RSV", "Hospitalizations attributable to RSV (lower 5th percentile)", "Hospitalizations attributable to RSV (upper 95th percentile)", "RSV-attributable hospitalization rate", "RSV-attributable hospitalization rate (lower 5th percentile)", "RSV-attributable hospitalization rate (upper 95th percentile)"
+)
+
+final_data[final_data$PAF < 0, 5:14] <- NA
+
+write.csv(final_data, paste0(output_path, format(Sys.time(), "%m_%d_%y"), "_burden_", country, ".csv"), row.names = FALSE)
